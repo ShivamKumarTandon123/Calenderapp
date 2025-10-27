@@ -6,9 +6,11 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useDropzone } from "react-dropzone"
-import { Upload, Calendar, Trash2, Sparkles, FileText, ChevronRight, CircleCheck as CheckCircle2, Circle, X, Zap } from "lucide-react"
+import { Upload, Calendar, Trash2, Sparkles, FileText, ChevronRight, CircleCheck as CheckCircle2, Circle, X, Zap, Key, Settings } from "lucide-react"
 import { supabase, type Document, type ExtractedEvent } from "@/lib/supabase"
 import {
   uploadDocument,
@@ -50,6 +52,9 @@ export function DocumentUpload() {
   const [isLoading, setIsLoading] = useState(true)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [eventToDelete, setEventToDelete] = useState<string | null>(null)
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false)
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
+  const [hasApiKey, setHasApiKey] = useState(false)
 
   useEffect(() => {
     initializeUser()
@@ -63,6 +68,59 @@ export function DocumentUpload() {
     }
     setUserId(storedUserId)
     await loadDocuments(storedUserId)
+    await checkApiKey()
+  }
+
+  const checkApiKey = async () => {
+    try {
+      const { data } = await supabase
+        .from('api_keys')
+        .select('id')
+        .eq('service_name', 'openai')
+        .maybeSingle()
+
+      setHasApiKey(!!data)
+    } catch (error) {
+      console.error('Error checking API key:', error)
+    }
+  }
+
+  const saveApiKey = async () => {
+    if (!openaiApiKey.trim()) {
+      toast.error('Please enter an API key')
+      return
+    }
+
+    try {
+      const { data: existing } = await supabase
+        .from('api_keys')
+        .select('id')
+        .eq('service_name', 'openai')
+        .maybeSingle()
+
+      if (existing) {
+        await supabase
+          .from('api_keys')
+          .update({ api_key: openaiApiKey.trim(), updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+      } else {
+        await supabase
+          .from('api_keys')
+          .insert({
+            user_id: userId,
+            service_name: 'openai',
+            api_key: openaiApiKey.trim(),
+          })
+      }
+
+      setHasApiKey(true)
+      setApiKeyDialogOpen(false)
+      setOpenaiApiKey('')
+      toast.success('OpenAI API key saved successfully')
+    } catch (error) {
+      console.error('Error saving API key:', error)
+      toast.error('Failed to save API key')
+    }
   }
 
   const loadDocuments = async (userId: string) => {
@@ -331,8 +389,21 @@ export function DocumentUpload() {
     <div className="flex h-screen bg-background">
       <aside className="w-64 border-r border-border bg-card flex flex-col">
         <div className="p-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground mb-1">Uploads Library</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-semibold text-foreground">Uploads Library</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => setApiKeyDialogOpen(true)}
+            >
+              <Key className={`h-4 w-4 ${hasApiKey ? 'text-green-600' : 'text-muted-foreground'}`} />
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">{completedDocs.length} documents</p>
+          {!hasApiKey && (
+            <p className="text-xs text-orange-600 mt-1">Add API key for AI extraction</p>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -637,6 +708,60 @@ export function DocumentUpload() {
               onClick={handleDeleteSingleEvent}
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Configure OpenAI API Key</DialogTitle>
+            <DialogDescription>
+              Add your OpenAI API key to enable AI-powered event extraction. The AI will automatically detect all dates, times, meetings, assignments, and deadlines from your documents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="apiKey">OpenAI API Key</Label>
+              <Input
+                id="apiKey"
+                type="password"
+                placeholder="sk-..."
+                value={openaiApiKey}
+                onChange={(e) => setOpenaiApiKey(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Get your API key from{' '}
+                <a
+                  href="https://platform.openai.com/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  platform.openai.com
+                </a>
+              </p>
+            </div>
+            {hasApiKey && (
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>API key is configured</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setApiKeyDialogOpen(false)
+                setOpenaiApiKey('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={saveApiKey}>
+              Save API Key
             </Button>
           </DialogFooter>
         </DialogContent>

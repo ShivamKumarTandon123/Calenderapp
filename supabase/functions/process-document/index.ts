@@ -47,27 +47,39 @@ async function extractEventsWithGPT(text: string, openaiApiKey: string): Promise
   try {
     const openai = new OpenAI({ apiKey: openaiApiKey });
 
-    const prompt = `Extract all calendar events, tasks, deadlines, assignments, exams, and meetings from the following text. For each event, identify:
-- title (concise, descriptive)
-- description (optional, 1-2 sentences)
-- event_date (YYYY-MM-DD format)
-- start_time (HH:MM:SS format if time mentioned, otherwise null)
-- end_time (HH:MM:SS format if time mentioned, otherwise null)
-- location (if mentioned)
-- category (one of: assignment, exam, meeting, deadline, milestone, other)
-- priority (one of: critical, high, medium, low based on urgency indicators like "urgent", "final", "important")
-- confidence (0-100, how confident you are this is a real event)
+    const prompt = `You are an expert at extracting calendar events from documents like syllabi, schedules, and meeting notes.
 
-Return ONLY a JSON array of events. No markdown, no explanation, just the JSON array.
+Extract EVERY date, time, meeting, assignment, exam, deadline, or event mentioned in the text below. Be thorough and extract ALL events.
 
-Text to analyze:
-${text.substring(0, 8000)}`;
+For each event, provide:
+- title: Short descriptive title (required)
+- description: Additional details if available
+- event_date: Date in YYYY-MM-DD format (required)
+- start_time: Time in HH:MM:SS format (e.g., "14:30:00" for 2:30 PM), null if not mentioned
+- end_time: End time in HH:MM:SS format, null if not mentioned
+- location: Physical or virtual location if mentioned
+- category: Choose from: assignment, exam, meeting, deadline, milestone, other
+- priority: Choose from: critical, high, medium, low (use context like "final exam" = critical, "assignment due" = high)
+- confidence: 0-100 (how certain you are this is a real event)
+
+IMPORTANT:
+- Extract ALL dates and times, even if mentioned casually
+- For dates like "Monday, October 5" or "10/5/2025", extract them
+- For times like "2:30 PM" or "14:30" or "2-3pm", extract them
+- If a year is not mentioned, assume the current year or next occurrence
+- If only a date is mentioned without time, still extract it
+- Be generous - when in doubt, include it
+
+Return ONLY a JSON array. No markdown formatting, no code blocks, no explanation.
+
+TEXT TO ANALYZE:
+${text.substring(0, 12000)}`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: 0.2,
+      max_tokens: 3000,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -75,8 +87,14 @@ ${text.substring(0, 8000)}`;
       throw new Error('No response from GPT');
     }
 
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    let jsonStr = content.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```\n?$/g, '');
+    }
+
+    const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+    jsonStr = jsonMatch ? jsonMatch[0] : jsonStr;
+
     const events = JSON.parse(jsonStr);
 
     return events.map((event: any) => ({
@@ -115,6 +133,8 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
   });
 
   const parsedDates = customChrono.parse(text, new Date(), { forwardDate: true });
+
+  console.log(`Found ${parsedDates.length} dates in text`);
   
   const eventKeywords = {
     assignment: ['assignment', 'homework', 'hw', 'project', 'essay', 'paper'],
@@ -315,18 +335,34 @@ Deno.serve(async (req: Request) => {
       .update({ progress: 75 })
       .eq('id', documentId);
 
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     let events: ExtractedEvent[] = [];
 
-    if (openaiApiKey && extractedText.length > 100) {
+    const { data: apiKeyData } = await supabase
+      .from('api_keys')
+      .select('api_key')
+      .eq('service_name', 'openai')
+      .maybeSingle();
+
+    const openaiApiKey = apiKeyData?.api_key || Deno.env.get('OPENAI_API_KEY');
+
+    console.log(`Extracted text length: ${extractedText.length}`);
+    console.log(`OpenAI key available: ${!!openaiApiKey}`);
+
+    if (openaiApiKey && extractedText.length > 50) {
+      console.log('Using GPT extraction');
       events = await extractEventsWithGPT(extractedText, openaiApiKey);
+      console.log(`GPT extracted ${events.length} events`);
 
       if (events.length === 0) {
+        console.log('GPT returned 0 events, falling back to chrono');
         events = extractEventsFromText(extractedText);
       }
     } else {
+      console.log('Using fallback chrono extraction');
       events = extractEventsFromText(extractedText);
     }
+
+    console.log(`Total events extracted: ${events.length}`);
 
     await supabase
       .from('documents')
