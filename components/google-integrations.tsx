@@ -124,7 +124,24 @@ export function GoogleIntegrations() {
   const getServiceIcon = (service: string) => {
     switch (service) {
       case "gmail":
-        return <Mail className="h-5 w-5 text-[#EA4335]" />
+        return (
+          <div className="relative h-5 w-5">
+            <Mail className="h-5 w-5" style={{
+              fill: 'url(#gmail-gradient)',
+              color: 'url(#gmail-gradient)'
+            }} />
+            <svg width="0" height="0">
+              <defs>
+                <linearGradient id="gmail-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style={{ stopColor: '#EA4335' }} />
+                  <stop offset="33%" style={{ stopColor: '#FBBC04' }} />
+                  <stop offset="66%" style={{ stopColor: '#34A853' }} />
+                  <stop offset="100%" style={{ stopColor: '#4285F4' }} />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        )
       case "meet":
         return <Video className="h-5 w-5 text-[#00897B]" />
       case "calendar":
