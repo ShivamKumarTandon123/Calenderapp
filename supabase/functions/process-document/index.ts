@@ -76,7 +76,7 @@ TEXT TO ANALYZE:
 ${text.substring(0, 12000)}`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
       max_tokens: 3000,
