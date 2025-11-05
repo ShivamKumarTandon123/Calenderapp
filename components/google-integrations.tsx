@@ -124,11 +124,11 @@ export function GoogleIntegrations() {
   const getServiceIcon = (service: string) => {
     switch (service) {
       case "gmail":
-        return <Mail className="h-5 w-5" />
+        return <Mail className="h-5 w-5 text-[#EA4335]" />
       case "meet":
-        return <Video className="h-5 w-5" />
+        return <Video className="h-5 w-5 text-[#00897B]" />
       case "calendar":
-        return <Calendar className="h-5 w-5" />
+        return <Calendar className="h-5 w-5 text-[#1A73E8]" />
       default:
         return <Settings className="h-5 w-5" />
     }
@@ -284,7 +284,7 @@ export function GoogleIntegrations() {
         <Card className="p-4">
           <div className="space-y-3">
             <div className="flex items-center space-x-2">
-              <Video className="h-5 w-5 text-primary" />
+              <Video className="h-5 w-5 text-[#00897B]" />
               <h3 className="font-medium">Google Meet Integration</h3>
             </div>
             <p className="text-sm text-muted-foreground">Automatically add Google Meet links to your calendar events</p>
@@ -304,7 +304,7 @@ export function GoogleIntegrations() {
         <Card className="p-4">
           <div className="space-y-3">
             <div className="flex items-center space-x-2">
-              <Calendar className="h-5 w-5 text-primary" />
+              <Calendar className="h-5 w-5 text-[#1A73E8]" />
               <h3 className="font-medium">Calendar Sync</h3>
             </div>
             <p className="text-sm text-muted-foreground">Two-way sync with your Google Calendar</p>
