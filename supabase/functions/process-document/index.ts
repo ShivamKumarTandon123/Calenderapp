@@ -48,46 +48,65 @@ async function extractEventsWithGPT(text: string, openaiApiKey: string): Promise
     const openai = new OpenAI({ apiKey: openaiApiKey });
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
 
-    const prompt = `You are an expert at extracting calendar events from documents like syllabi, schedules, meeting notes, and academic calendars.
+    const prompt = `You are an expert at extracting ONLY genuine calendar events from documents. Your task is to identify actual scheduled events, not random dates or references.
 
-Current context: Today is ${currentMonth} ${currentYear}. Use this to infer years for dates that don't specify one.
+Current context: Today is ${currentMonth} ${today.getDate()}, ${currentYear} (${todayStr}).
 
-Extract EVERY date, time, meeting, assignment, exam, deadline, or event mentioned in the text below. Be extremely thorough and extract ALL events, even if the information seems incomplete.
+CRITICAL: Extract ONLY clear, actionable events with specific dates. DO NOT extract:
+- Random dates mentioned in passing without event context
+- Historical references or examples
+- Generic statements like "meet weekly" without specific dates
+- Dates in instructional text or descriptions
+- Today's date unless there's a clear event scheduled for today
+- Dates that are just part of document metadata or headers
 
-For each event, provide:
-- title: Short descriptive title (required) - extract the actual event name/topic, not just "meeting" or "assignment"
-- description: Additional details if available (requirements, instructions, notes)
-- event_date: Date in YYYY-MM-DD format (required) - if year is missing, infer from context
+What TO extract:
+- Scheduled meetings with specific dates/times
+- Assignment due dates with clear deliverables
+- Exam dates
+- Deadlines for specific tasks or submissions
+- Scheduled office hours on specific dates
+- Recurring events where you can calculate specific dates (e.g., "Every Monday at 2pm" - extract the next several Mondays)
+
+For each genuine event you find, provide:
+- title: Descriptive event name (NOT just "Meeting" or "Assignment" - include the topic/subject)
+- description: Additional context, requirements, or details
+- event_date: Date in YYYY-MM-DD format (must be a specific future date, not today unless explicitly scheduled)
 - start_time: Time in HH:MM:SS format (e.g., "14:30:00" for 2:30 PM), null if not mentioned
 - end_time: End time in HH:MM:SS format, null if not mentioned
-- location: Physical location (room numbers, buildings) or virtual location (Zoom links, Teams)
+- location: Physical location or virtual meeting link
 - category: Choose from: assignment, exam, meeting, deadline, milestone, other
-- priority: Choose from: critical, high, medium, low (final exams=critical, major assignments/midterms=high, regular homework=medium, optional=low)
-- confidence: 0-100 (how certain you are this is a real event)
+- priority: critical (finals/major deadlines), high (major assignments/midterms), medium (regular work), low (optional)
+- confidence: 60-100 (use 60-70 for ambiguous, 70-85 for clear, 85-100 for explicit events with complete info)
 
-IMPORTANT DATE/TIME EXTRACTION RULES:
-- Extract dates in these formats: "October 5", "10/5/2025", "10-5-25", "Oct 5th", "Monday Oct 5", "2025-10-05"
-- Extract times like: "2:30 PM", "14:30", "2-3pm", "2:30-3:45pm", "from 2 to 3pm"
-- If only month/day given (e.g., "October 5"), infer year as ${currentYear} or ${currentYear + 1} based on context
-- If time range is given like "2-3pm", use start_time=14:00:00 and end_time=15:00:00
-- When dates are mentioned as "Monday" or "next week", try to extract them if other context helps
-- For academic calendars, look for patterns like "Week 1: Topic (Date)", "Day/Date: Event"
+STRICT EXTRACTION RULES:
+1. Each event MUST have a clear, specific date that can be converted to YYYY-MM-DD format
+2. Event title MUST be meaningful - not just the date or a single generic word
+3. There must be clear event context near the date (assignment name, meeting topic, exam subject)
+4. Confidence below 60 means you should NOT extract it
+5. If you can't determine what the event actually is, don't extract it
+6. Today's date (${todayStr}) should ONLY be used if the document explicitly mentions an event happening today
 
-CONTEXT UNDERSTANDING:
-- Course meetings: Look for recurring patterns like "MWF 10am" or "Tuesday/Thursday 2-3:15pm"
-- Assignment due dates: Look for "due", "submit by", "turn in by"
-- Exams: Look for "exam", "test", "quiz", "midterm", "final"
-- Office hours: Look for instructor availability times
-- Holidays/breaks: No class dates, reading weeks
+EXAMPLES OF WHAT TO EXTRACT:
+✓ "Problem Set 3 due October 15" → Extract as assignment on 2025-10-15
+✓ "Midterm exam on November 5, 2-4pm in Room 301" → Extract with full details
+✓ "Office hours every Tuesday 3-5pm" → Extract next several Tuesday dates
+✓ "Final project presentation December 10" → Extract as milestone
 
-EXTRACTION TIPS:
-- Don't skip dates just because they lack complete information
-- If multiple events share the same date, create separate entries
-- Associate times with nearby dates intelligently
-- Extract location/room numbers even if not explicitly labeled
+EXAMPLES OF WHAT NOT TO EXTRACT:
+✗ "In 2025, we will cover..." → No specific event
+✗ "Meet with your team regularly" → No specific date
+✗ "Last updated: October 1" → Document metadata, not an event
+✗ "Classes began on September 3" → Past date reference
+✗ Random words or fragments near dates without clear event context
 
-Return ONLY a valid JSON array. No markdown, no code blocks, no explanations, just: [{"title":"...","event_date":"...",...},...]
+Return ONLY a valid JSON array. No markdown, no code blocks, no explanations:
+[{"title":"...","event_date":"YYYY-MM-DD",...},...]
+
+If no genuine events are found, return an empty array: []
 
 TEXT TO ANALYZE:
 ${text.substring(0, 20000)}`;
@@ -120,6 +139,10 @@ ${text.substring(0, 20000)}`;
     const events = JSON.parse(jsonStr);
     console.log(`Successfully parsed ${events.length} events from GPT response`);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
     const validatedEvents = events
       .map((event: any) => {
         const eventDate = event.event_date || event.date;
@@ -134,16 +157,44 @@ ${text.substring(0, 20000)}`;
           return null;
         }
 
-        const minDate = new Date('2020-01-01');
+        const minDate = new Date();
+        minDate.setDate(minDate.getDate() - 7);
         const maxDate = new Date();
-        maxDate.setFullYear(maxDate.getFullYear() + 5);
+        maxDate.setFullYear(maxDate.getFullYear() + 3);
         if (dateObj < minDate || dateObj > maxDate) {
           console.warn('Date out of reasonable range, skipping:', eventDate);
           return null;
         }
 
+        const title = event.title || 'Untitled Event';
+        const confidence = Math.min(Math.max(event.confidence || 75, 0), 100);
+
+        if (title.length < 5 || title.toLowerCase().includes('untitled')) {
+          console.warn('Event title too short or generic, skipping:', title);
+          return null;
+        }
+
+        if (confidence < 60) {
+          console.warn('Event confidence too low, skipping:', title, confidence);
+          return null;
+        }
+
+        const titleLower = title.toLowerCase();
+        if (titleLower.match(/^(date|time|event|meeting|assignment)$/)) {
+          console.warn('Event title is generic single word, skipping:', title);
+          return null;
+        }
+
+        if (eventDate === todayStr) {
+          const hasTimeOrLocation = event.start_time || event.location;
+          if (!hasTimeOrLocation && confidence < 80) {
+            console.warn('Event date is today but lacks time/location and has low confidence, skipping:', title);
+            return null;
+          }
+        }
+
         return {
-          title: event.title || 'Untitled Event',
+          title: title,
           description: event.description || undefined,
           event_date: eventDate,
           start_time: event.start_time || undefined,
@@ -151,7 +202,7 @@ ${text.substring(0, 20000)}`;
           location: event.location || undefined,
           category: event.category || 'other',
           priority: event.priority || 'medium',
-          confidence: Math.min(Math.max(event.confidence || 75, 0), 100),
+          confidence: confidence,
         };
       })
       .filter((event: any) => event !== null);
@@ -177,6 +228,8 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
   customChrono.refiners.push({
     refine: (context, results) => {
       const currentYear = new Date().getFullYear();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
       results.forEach(result => {
         if (!result.start.isCertain('year')) {
@@ -218,10 +271,31 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
     low: ['low', 'optional', 'nice to have', 'bonus'],
   };
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+
   for (const parsed of parsedDates) {
     const startIndex = Math.max(0, parsed.index - 250);
     const endIndex = Math.min(text.length, parsed.index + parsed.text.length + 250);
     const context = text.substring(startIndex, endIndex);
+
+    const lowerContext = context.toLowerCase();
+
+    const hasEventKeyword =
+      lowerContext.includes('due') || lowerContext.includes('deadline') ||
+      lowerContext.includes('exam') || lowerContext.includes('test') ||
+      lowerContext.includes('meeting') || lowerContext.includes('assignment') ||
+      lowerContext.includes('project') || lowerContext.includes('presentation') ||
+      lowerContext.includes('quiz') || lowerContext.includes('submit') ||
+      lowerContext.includes('homework') || lowerContext.includes('class') ||
+      lowerContext.includes('lecture') || lowerContext.includes('seminar') ||
+      lowerContext.includes('office hours');
+
+    if (!hasEventKeyword) {
+      console.warn('Date found without event keywords in context, skipping:', parsed.text);
+      continue;
+    }
 
     const contextLines = context.split('\n').map(l => l.trim()).filter(l => l);
 
@@ -237,11 +311,14 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
       title = title.substring(0, 117) + '...';
     }
 
+    if (title.length < 5) {
+      console.warn('Title too short, skipping:', title);
+      continue;
+    }
+
     let category = 'other';
     let priority = 'medium';
-    let confidence = 65;
-
-    const lowerContext = context.toLowerCase();
+    let confidence = 50;
 
     for (const [cat, keywords] of Object.entries(eventKeywords)) {
       if (keywords.some(kw => lowerContext.includes(kw))) {
@@ -285,12 +362,25 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
 
     const startDate = parsed.start.date();
 
-    const minDate = new Date('2020-01-01');
+    const minDate = new Date();
+    minDate.setDate(minDate.getDate() - 7);
     const maxDate = new Date();
-    maxDate.setFullYear(maxDate.getFullYear() + 5);
+    maxDate.setFullYear(maxDate.getFullYear() + 3);
 
     if (startDate < minDate || startDate > maxDate) {
       console.warn(`Date out of range, skipping: ${startDate.toISOString()}`);
+      continue;
+    }
+
+    const eventDateStr = startDate.toISOString().split('T')[0];
+
+    if (eventDateStr === todayStr && confidence < 70) {
+      console.warn('Date is today with low confidence, skipping:', title);
+      continue;
+    }
+
+    if (confidence < 60) {
+      console.warn('Confidence too low, skipping:', title, confidence);
       continue;
     }
 
@@ -301,7 +391,7 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
     const event: ExtractedEvent = {
       title: title,
       description: description || undefined,
-      event_date: startDate.toISOString().split('T')[0],
+      event_date: eventDateStr,
       start_time: parsed.start.isCertain('hour') ?
         `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}:00` :
         undefined,
