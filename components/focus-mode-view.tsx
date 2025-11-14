@@ -144,52 +144,57 @@ export function FocusModeView() {
   const hasStarted = totalSeconds > 0;
 
   return (
-    <div className="flex h-full bg-gray-50 relative">
+    <div className="relative h-full bg-gradient-to-br from-gray-50 via-gray-50 to-blue-50/30 overflow-auto">
       {isRunning && hasStarted && (
-        <div className="absolute inset-0 bg-gray-900/20 backdrop-blur-[2px] z-0 pointer-events-none" />
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-20 pointer-events-none" />
       )}
 
-      <div className="flex-1 flex relative z-10">
-        <div className="w-2/3 p-8 overflow-auto">
-          <Card className={`p-8 transition-all ${isRunning && hasStarted ? 'shadow-2xl' : 'shadow-lg'}`}>
-            <div className="space-y-8">
-              <SessionHeader
-                item={currentItem}
-                onChangeItem={() => setShowItemPicker(true)}
-              />
-
-              <div className="border-t pt-8">
-                <TimerControls
-                  isRunning={isRunning}
-                  onStart={handleStart}
-                  onPause={handlePause}
-                  onResume={handleResume}
-                  onEnd={handleEnd}
-                  elapsedSeconds={elapsedSeconds}
-                  totalSeconds={totalSeconds}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+          <div className="lg:col-span-2">
+            <Card className={`relative overflow-hidden transition-all duration-300 border-0 ${isRunning && hasStarted ? 'shadow-2xl ring-2 ring-blue-500/20 z-30' : 'shadow-xl'}`}>
+              <div className="absolute inset-0 bg-gradient-to-br from-white via-white to-blue-50/20" />
+              <div className="relative p-8 lg:p-10">
+                <SessionHeader
+                  item={currentItem}
+                  onChangeItem={() => setShowItemPicker(true)}
                 />
+
+                <div className="mt-8">
+                  <TimerControls
+                    isRunning={isRunning}
+                    onStart={handleStart}
+                    onPause={handlePause}
+                    onResume={handleResume}
+                    onEnd={handleEnd}
+                    elapsedSeconds={elapsedSeconds}
+                    totalSeconds={totalSeconds}
+                  />
+                </div>
+
+                {hasStarted && (
+                  <>
+                    <div className="mt-8 pt-8 border-t border-gray-200/60">
+                      <MicroChecklist items={checklist} onChange={setChecklist} />
+                    </div>
+
+                    <div className="mt-8 pt-8 border-t border-gray-200/60">
+                      <DistractionCapture
+                        notes={distractionNotes}
+                        onChange={setDistractionNotes}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
+            </Card>
+          </div>
 
-              {hasStarted && (
-                <>
-                  <div className="border-t pt-8">
-                    <MicroChecklist items={checklist} onChange={setChecklist} />
-                  </div>
-
-                  <div className="border-t pt-8">
-                    <DistractionCapture
-                      notes={distractionNotes}
-                      onChange={setDistractionNotes}
-                    />
-                  </div>
-                </>
-              )}
+          <div className="lg:col-span-1">
+            <div className={`sticky top-8 transition-all duration-300 ${isRunning && hasStarted ? 'z-30' : ''}`}>
+              <TodayStatsPanel recentSessions={recentSessions} />
             </div>
-          </Card>
-        </div>
-
-        <div className="w-1/3 p-8 overflow-auto border-l bg-white/50">
-          <TodayStatsPanel recentSessions={recentSessions} />
+          </div>
         </div>
       </div>
 

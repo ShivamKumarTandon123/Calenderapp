@@ -1,10 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Play, Pause, Square } from "lucide-react"
-import { Progress } from "@/components/ui/progress"
 
 type TimerControlsProps = {
   isRunning: boolean;
@@ -57,115 +56,122 @@ export function TimerControls({
   };
 
   return (
-    <div className="space-y-6">
-      {!hasStarted && (
-        <div className="space-y-4">
-          <div className="flex gap-3">
+    <div>
+      {!hasStarted ? (
+        <div className="space-y-5">
+          <div className="flex items-center justify-center gap-3">
             {presets.map((minutes) => (
-              <Button
+              <button
                 key={minutes}
-                variant={selectedPreset === minutes ? "default" : "outline"}
-                size="lg"
                 onClick={() => handlePresetClick(minutes)}
-                className="flex-1 text-lg font-semibold"
+                className="group relative px-8 py-4 bg-white hover:bg-blue-50 border-2 border-gray-200 hover:border-blue-400 rounded-2xl transition-all duration-200 hover:shadow-md active:scale-95"
               >
-                {minutes}m
-              </Button>
+                <div className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  {minutes}
+                </div>
+                <div className="text-xs text-gray-500 group-hover:text-blue-600 transition-colors mt-1">
+                  minutes
+                </div>
+              </button>
             ))}
           </div>
-          <div className="flex gap-2">
-            <Input
-              type="number"
-              placeholder="Custom minutes"
-              value={customMinutes}
-              onChange={(e) => setCustomMinutes(e.target.value)}
-              min="1"
-              max="999"
-              className="flex-1"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleCustomStart();
-                }
-              }}
-            />
+
+          <div className="flex items-center gap-3 max-w-md mx-auto">
+            <div className="relative flex-1">
+              <Input
+                type="number"
+                placeholder="Custom"
+                value={customMinutes}
+                onChange={(e) => setCustomMinutes(e.target.value)}
+                min="1"
+                max="999"
+                className="h-12 text-center text-lg border-2 border-gray-200 focus:border-blue-400 rounded-xl"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleCustomStart();
+                  }
+                }}
+              />
+            </div>
             <Button
               onClick={handleCustomStart}
               disabled={!customMinutes || parseInt(customMinutes) <= 0}
-              size="lg"
+              className="h-12 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Start
             </Button>
           </div>
         </div>
-      )}
-
-      {hasStarted && (
+      ) : (
         <div className="space-y-6">
-          <div className="flex flex-col items-center justify-center py-8">
-            <div className="relative w-48 h-48 flex items-center justify-center">
+          <div className="flex flex-col items-center justify-center py-6">
+            <div className="relative w-56 h-56 flex items-center justify-center">
               <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
                 <circle
                   cx="50"
                   cy="50"
-                  r="45"
+                  r="42"
                   fill="none"
                   stroke="#e5e7eb"
-                  strokeWidth="8"
+                  strokeWidth="6"
                 />
                 <circle
                   cx="50"
                   cy="50"
-                  r="45"
+                  r="42"
                   fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth="8"
-                  strokeDasharray={`${2 * Math.PI * 45}`}
-                  strokeDashoffset={`${2 * Math.PI * 45 * (1 - progress / 100)}`}
+                  stroke="url(#gradient)"
+                  strokeWidth="6"
+                  strokeDasharray={`${2 * Math.PI * 42}`}
+                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - progress / 100)}`}
                   strokeLinecap="round"
                   className="transition-all duration-1000"
                 />
+                <defs>
+                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#2563eb" />
+                  </linearGradient>
+                </defs>
               </svg>
               <div className="text-center">
-                <div className="text-4xl font-bold text-gray-900 tabular-nums">
+                <div className="text-5xl font-bold text-gray-900 tabular-nums tracking-tight">
                   {formatTime(remainingSeconds)}
                 </div>
-                <div className="text-sm text-gray-500 mt-1">remaining</div>
+                <div className="text-sm font-medium text-gray-500 mt-2">remaining</div>
               </div>
             </div>
           </div>
 
-          <Progress value={progress} className="h-2" />
-
-          <div className="flex gap-3 justify-center">
+          <div className="flex items-center gap-3 justify-center">
             {isRunning ? (
               <Button
                 variant="outline"
                 size="lg"
                 onClick={onPause}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 h-12 px-6 border-2 border-gray-300 hover:border-gray-400 rounded-xl font-semibold"
               >
                 <Pause className="h-5 w-5" />
                 Pause
               </Button>
             ) : (
               <Button
-                variant="default"
                 size="lg"
                 onClick={onResume}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 h-12 px-6 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold shadow-lg hover:shadow-xl"
               >
                 <Play className="h-5 w-5" />
                 Resume
               </Button>
             )}
             <Button
-              variant="destructive"
+              variant="outline"
               size="lg"
               onClick={onEnd}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 h-12 px-6 border-2 border-red-200 hover:border-red-300 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl font-semibold"
             >
-              <Square className="h-5 w-5" />
-              End Session
+              <Square className="h-4 w-4" />
+              End
             </Button>
           </div>
         </div>
