@@ -58,26 +58,18 @@ export function TimerControls({
   return (
     <div>
       {!hasStarted ? (
-        <div className="space-y-5">
-          <div className="flex items-center justify-center gap-3">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
             {presets.map((minutes) => (
               <button
                 key={minutes}
                 onClick={() => handlePresetClick(minutes)}
-                className="group relative px-8 py-4 bg-white hover:bg-blue-50 border-2 border-gray-200 hover:border-blue-400 rounded-2xl transition-all duration-200 hover:shadow-md active:scale-95"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
               >
-                <div className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                  {minutes}
-                </div>
-                <div className="text-xs text-gray-500 group-hover:text-blue-600 transition-colors mt-1">
-                  minutes
-                </div>
+                {minutes}m
               </button>
             ))}
-          </div>
-
-          <div className="flex items-center gap-3 max-w-md mx-auto">
-            <div className="relative flex-1">
+            <div className="flex items-center gap-2 ml-auto">
               <Input
                 type="number"
                 placeholder="Custom"
@@ -85,92 +77,67 @@ export function TimerControls({
                 onChange={(e) => setCustomMinutes(e.target.value)}
                 min="1"
                 max="999"
-                className="h-12 text-center text-lg border-2 border-gray-200 focus:border-blue-400 rounded-xl"
+                className="w-24 h-10 text-sm"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     handleCustomStart();
                   }
                 }}
               />
+              <Button
+                onClick={handleCustomStart}
+                disabled={!customMinutes || parseInt(customMinutes) <= 0}
+                className="h-10 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Start
+              </Button>
             </div>
-            <Button
-              onClick={handleCustomStart}
-              disabled={!customMinutes || parseInt(customMinutes) <= 0}
-              className="h-12 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Start
-            </Button>
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="flex flex-col items-center justify-center py-6">
-            <div className="relative w-56 h-56 flex items-center justify-center">
-              <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  fill="none"
-                  stroke="#e5e7eb"
-                  strokeWidth="6"
-                />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  fill="none"
-                  stroke="url(#gradient)"
-                  strokeWidth="6"
-                  strokeDasharray={`${2 * Math.PI * 42}`}
-                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - progress / 100)}`}
-                  strokeLinecap="round"
-                  className="transition-all duration-1000"
-                />
-                <defs>
-                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#3b82f6" />
-                    <stop offset="100%" stopColor="#2563eb" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="text-center">
-                <div className="text-5xl font-bold text-gray-900 tabular-nums tracking-tight">
-                  {formatTime(remainingSeconds)}
-                </div>
-                <div className="text-sm font-medium text-gray-500 mt-2">remaining</div>
-              </div>
+        <div className="space-y-4">
+          <div className="text-center py-4">
+            <div className="text-5xl font-semibold text-gray-900 tabular-nums mb-2">
+              {formatTime(remainingSeconds)}
             </div>
+            <div className="text-sm text-gray-500">remaining</div>
           </div>
 
-          <div className="flex items-center gap-3 justify-center">
+          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full bg-blue-600 transition-all duration-1000"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 justify-center">
             {isRunning ? (
               <Button
                 variant="outline"
-                size="lg"
+                size="sm"
                 onClick={onPause}
-                className="flex items-center gap-2 h-12 px-6 border-2 border-gray-300 hover:border-gray-400 rounded-xl font-semibold"
+                className="flex items-center gap-2"
               >
-                <Pause className="h-5 w-5" />
+                <Pause className="h-4 w-4" />
                 Pause
               </Button>
             ) : (
               <Button
-                size="lg"
+                size="sm"
                 onClick={onResume}
-                className="flex items-center gap-2 h-12 px-6 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold shadow-lg hover:shadow-xl"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
               >
-                <Play className="h-5 w-5" />
+                <Play className="h-4 w-4" />
                 Resume
               </Button>
             )}
             <Button
               variant="outline"
-              size="lg"
+              size="sm"
               onClick={onEnd}
-              className="flex items-center gap-2 h-12 px-6 border-2 border-red-200 hover:border-red-300 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl font-semibold"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-3.5 w-3.5" />
               End
             </Button>
           </div>

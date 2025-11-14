@@ -18,28 +18,28 @@ export function SessionHeader({ item, onChangeItem }: SessionHeaderProps) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-2">
           <Badge
-            variant="secondary"
-            className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 border-blue-200/50 rounded-full"
+            variant="outline"
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium text-gray-600 border-gray-300"
           >
             <SourceIcon className="h-3 w-3" />
             {item.type === "event" ? "Event" : "Task"}
           </Badge>
           {item.source && (
-            <span className="text-xs text-gray-500 font-medium">{item.source}</span>
+            <span className="text-xs text-gray-500">{item.source}</span>
           )}
         </div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-2 leading-tight tracking-tight">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-1">
           {item.title}
         </h2>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="text-sm text-gray-600">
           {item.type === "event" ? (
-            <span className="font-medium">
+            <span>
               {format(item.start, "h:mm a")} - {format(item.end, "h:mm a")}
             </span>
           ) : (
-            <span className="font-medium">Due: {format(item.end, "MMM d, yyyy")}</span>
+            <span>Due {format(item.end, "MMM d, yyyy")}</span>
           )}
         </div>
       </div>
@@ -47,10 +47,10 @@ export function SessionHeader({ item, onChangeItem }: SessionHeaderProps) {
         variant="ghost"
         size="sm"
         onClick={onChangeItem}
-        className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg px-3 shrink-0"
+        className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 border border-gray-300 hover:border-gray-400"
       >
         <RefreshCw className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Change</span>
+        <span className="hidden sm:inline text-xs">Change</span>
       </Button>
     </div>
   );

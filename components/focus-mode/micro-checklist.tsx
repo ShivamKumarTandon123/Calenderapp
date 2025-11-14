@@ -48,31 +48,23 @@ export function MicroChecklist({ items, onChange }: MicroChecklistProps) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold text-gray-800">Session Checklist</h3>
-        <div className="flex items-center gap-2">
-          <div className="h-1.5 w-20 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-500"
-              style={{ width: `${completion}%` }}
-            />
-          </div>
-          <span className="text-xs font-medium text-gray-600">{completion}%</span>
-        </div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-gray-700">Checklist</h3>
+        <span className="text-xs text-gray-500">{completion}%</span>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {items.map((item) => (
           <div
             key={item.id}
-            className="group flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50/80 transition-colors"
+            className="group flex items-start gap-2 py-1.5 rounded hover:bg-gray-50"
           >
             <Checkbox
               id={item.id}
               checked={item.completed}
               onCheckedChange={() => handleToggle(item.id)}
-              className="mt-0.5 h-5 w-5 rounded-md border-2 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+              className="mt-0.5"
             />
             {editingId === item.id ? (
               <Input
@@ -87,15 +79,15 @@ export function MicroChecklist({ items, onChange }: MicroChecklistProps) {
                     setEditingId(null);
                   }
                 }}
-                className="flex-1 h-9 text-sm"
+                className="flex-1 h-8 text-sm"
               />
             ) : (
               <label
                 htmlFor={item.id}
-                className={`flex-1 text-sm leading-relaxed cursor-pointer transition-colors ${
+                className={`flex-1 text-sm cursor-pointer ${
                   item.completed
                     ? "line-through text-gray-400"
-                    : "text-gray-700 hover:text-gray-900"
+                    : "text-gray-700"
                 }`}
                 onDoubleClick={() => setEditingId(item.id)}
               >
@@ -104,15 +96,15 @@ export function MicroChecklist({ items, onChange }: MicroChecklistProps) {
             )}
             <button
               onClick={() => handleDelete(item.id)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-200 rounded"
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 rounded transition-opacity"
             >
-              <X className="h-3.5 w-3.5 text-gray-500" />
+              <X className="h-3 w-3 text-gray-500" />
             </button>
           </div>
         ))}
       </div>
 
-      <div className="flex items-center gap-2 pt-2">
+      <div className="flex items-center gap-2 pt-1">
         <Input
           placeholder="Add a step..."
           value={newItemText}
@@ -122,13 +114,14 @@ export function MicroChecklist({ items, onChange }: MicroChecklistProps) {
               handleAdd();
             }
           }}
-          className="flex-1 h-10 border-2 border-gray-200 focus:border-blue-400 rounded-lg"
+          className="flex-1 h-9 text-sm"
         />
         <Button
           onClick={handleAdd}
           disabled={!newItemText.trim()}
-          size="icon"
-          className="h-10 w-10 bg-blue-600 hover:bg-blue-700 rounded-lg shrink-0 disabled:opacity-50"
+          size="sm"
+          variant="ghost"
+          className="h-9 w-9 p-0"
         >
           <Plus className="h-4 w-4" />
         </Button>
