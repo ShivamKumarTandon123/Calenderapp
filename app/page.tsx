@@ -7,6 +7,7 @@ import { PriorityDashboard } from "@/components/priority-dashboard"
 import { GoogleIntegrations } from "@/components/google-integrations"
 import { DocumentUpload } from "@/components/document-upload"
 import { TasksView } from "@/components/tasks-view"
+import { FocusModeView } from "@/components/focus-mode-view"
 import { Sidebar } from "@/components/sidebar"
 
 export default function HomePage() {
@@ -20,6 +21,8 @@ export default function HomePage() {
         return <GoalManager />
       case "priorities":
         return <PriorityDashboard />
+      case "focus":
+        return <FocusModeView />
       case "google":
         return <GoogleIntegrations />
       case "upload":
