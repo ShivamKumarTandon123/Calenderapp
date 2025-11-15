@@ -203,46 +203,25 @@ function detectSections(text: string): Array<{ text: string; startLine: number; 
 }
 
 async function callOpenAIForDates(chunk: string, apiKey: string): Promise<ExtractedDate[]> {
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const prompt = `You are an AI assistant inside a calendar app.
 
-  const prompt = `You are an expert at extracting calendar dates from academic syllabus documents. Extract ALL dates that represent scheduled events.
+I will give you the full text of a document such as a syllabus, schedule, email, or contract.
 
-Current context: Today is ${currentMonth} ${today.getDate()}, ${currentYear} (${todayStr}).
+Read the entire document and extract all dates and what happens on those dates.
 
-CRITICAL RULES:
-1. Extract ONLY genuine calendar events with specific dates
-2. Each date MUST be normalized to YYYYMMDD format (e.g., "20250315" for March 15, 2025)
-3. Category MUST be one of: exam, quiz, assignment_due, class_session, holiday, other
-4. Include the original text_span where the date was found
-5. Provide a clear description of what the event is
-
-WHAT TO EXTRACT:
-- Exam dates (category: "exam")
-- Quiz dates (category: "quiz")
-- Assignment due dates (category: "assignment_due")
-- Class session dates (category: "class_session")
-- Holiday/break dates (category: "holiday")
-- Other scheduled events (category: "other")
-
-WHAT NOT TO EXTRACT:
-- Random dates mentioned without event context
-- Document creation dates or metadata
-- Historical references
-- Vague references without specific dates
-
-For year inference:
-- If month is earlier than current month (${new Date().getMonth() + 1}), assume next year (${currentYear + 1})
-- If month is current or later, assume current year (${currentYear})
-- Always prefer explicitly stated years
+Instructions:
+• Look for explicit dates like 'Nov 14, 2025', '11/14/25', 'December 5', 'May 2026'.
+• Also include clearly defined relative deadlines like 'within 30 days of signing', 'no later than 3 weeks before the exam'.
+• For each date or deadline, write ONE bullet on its own line.
+• Use this format exactly:
+  Original date text – short description of what happens
+• If you can infer a full calendar date, you may append it in parentheses, e.g.:
+  Nov 14, 2025 – Start of mobile urgent care practice (2025-11-14)
+• If something is vague or not clearly tied to an event, skip it instead of guessing.
+• Do not output JSON or code. Only output the bullet list.
 
 TEXT TO ANALYZE:
-${chunk}
-
-Return ONLY valid JSON matching this exact schema. No markdown, no code blocks, no explanations:
-{"dates":[{"text_span":"...","normalized_date":"YYYYMMDD","category":"exam|quiz|assignment_due|class_session|holiday|other","description":"..."}]}`;
+${chunk}`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -253,8 +232,7 @@ Return ONLY valid JSON matching this exact schema. No markdown, no code blocks, 
     body: JSON.stringify({
       model: 'gpt-4-turbo-preview',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      response_format: { type: 'json_object' }
+      temperature: 0
     })
   });
 
@@ -270,31 +248,25 @@ Return ONLY valid JSON matching this exact schema. No markdown, no code blocks, 
     throw new Error('No response content from OpenAI');
   }
 
-  const result = JSON.parse(content);
+  const bulletLines = content.split('\n').filter((line: string) => line.trim().startsWith('•') || line.trim().startsWith('-'));
 
-  if (!result.dates || !Array.isArray(result.dates)) {
-    return [];
-  }
+  return bulletLines.map((line: string, index: number) => {
+    const cleanLine = line.replace(/^[•\-]\s*/, '').trim();
 
-  return result.dates.filter((date: any) => {
-    if (!date.normalized_date || !/^\d{8}$/.test(date.normalized_date)) {
-      console.warn('Invalid normalized_date format:', date.normalized_date);
-      return false;
-    }
+    const dateMatch = cleanLine.match(/\((\d{4}-\d{2}-\d{2})\)/);
+    const normalizedDate = dateMatch ? dateMatch[1].replace(/-/g, '') : '';
 
-    const validCategories = ['exam', 'quiz', 'assignment_due', 'class_session', 'holiday', 'other'];
-    if (!validCategories.includes(date.category)) {
-      console.warn('Invalid category:', date.category);
-      return false;
-    }
+    const parts = cleanLine.split('–');
+    const textSpan = parts[0]?.trim() || cleanLine;
+    const description = parts[1]?.replace(/\(.*?\)/, '').trim() || textSpan;
 
-    if (!date.text_span || !date.description) {
-      console.warn('Missing required fields:', date);
-      return false;
-    }
-
-    return true;
-  });
+    return {
+      text_span: textSpan,
+      normalized_date: normalizedDate,
+      category: 'other',
+      description: description
+    };
+  }).filter((date: ExtractedDate) => date.text_span.length > 0);
 }
 
 function mergeDatesFromChunks(allDates: ExtractedDate[]): ExtractedDate[] {
@@ -372,36 +344,27 @@ function levenshteinDistance(str1: string, str2: string): number {
 
 function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
   return dates.map(date => {
-    const year = parseInt(date.normalized_date.substring(0, 4));
-    const month = parseInt(date.normalized_date.substring(4, 6)) - 1;
-    const day = parseInt(date.normalized_date.substring(6, 8));
-    const dateObj = new Date(year, month, day);
-    const eventDate = dateObj.toISOString().split('T')[0];
+    let eventDate = '';
 
-    const categoryMap: Record<string, string> = {
-      'exam': 'exam',
-      'quiz': 'exam',
-      'assignment_due': 'assignment',
-      'class_session': 'meeting',
-      'holiday': 'other',
-      'other': 'other'
-    };
+    if (date.normalized_date && date.normalized_date.length === 8) {
+      const year = parseInt(date.normalized_date.substring(0, 4));
+      const month = parseInt(date.normalized_date.substring(4, 6)) - 1;
+      const day = parseInt(date.normalized_date.substring(6, 8));
+      const dateObj = new Date(year, month, day);
+      eventDate = dateObj.toISOString().split('T')[0];
+    } else {
+      const today = new Date();
+      eventDate = today.toISOString().split('T')[0];
+    }
 
-    const priorityMap: Record<string, string> = {
-      'exam': 'high',
-      'quiz': 'medium',
-      'assignment_due': 'high',
-      'class_session': 'medium',
-      'holiday': 'low',
-      'other': 'medium'
-    };
+    const fullBulletText = date.text_span + (date.description && date.description !== date.text_span ? ' – ' + date.description : '');
 
     return {
-      title: date.description,
-      description: date.text_span,
+      title: fullBulletText,
+      description: '',
       event_date: eventDate,
-      category: categoryMap[date.category] || 'other',
-      priority: priorityMap[date.category] || 'medium',
+      category: 'other',
+      priority: 'medium',
       confidence: 85
     };
   });
