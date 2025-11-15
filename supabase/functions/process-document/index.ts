@@ -3,13 +3,19 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as pdfjsLib from "npm:pdfjs-dist@4.0.379";
 import Tesseract from "npm:tesseract.js@5.0.4";
 import * as chrono from "npm:chrono-node@2";
-import OpenAI from "npm:openai@4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
+
+interface ExtractedDate {
+  text_span: string;
+  normalized_date: string;
+  category: 'exam' | 'quiz' | 'assignment_due' | 'class_session' | 'holiday' | 'other';
+  description: string;
+}
 
 interface ExtractedEvent {
   title: string;
@@ -21,6 +27,13 @@ interface ExtractedEvent {
   category: string;
   priority: string;
   confidence: number;
+}
+
+interface ChunkMetadata {
+  chunkIndex: number;
+  startLine: number;
+  endLine: number;
+  text: string;
 }
 
 function cleanOCRText(text: string): string {
@@ -43,180 +56,355 @@ function cleanOCRText(text: string): string {
   return cleaned;
 }
 
-async function extractEventsWithGPT(text: string, openaiApiKey: string): Promise<ExtractedEvent[]> {
-  try {
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+async function extractDatesFromDocument(
+  text: string,
+  openaiApiKey: string
+): Promise<ExtractedDate[]> {
+  const CHUNK_SIZE = 3000;
+  const CHUNK_OVERLAP = 200;
 
-    const prompt = `You are an expert at extracting ONLY genuine calendar events from documents. Your task is to identify actual scheduled events, not random dates or references.
+  if (!text || text.trim().length < 50) {
+    console.warn('Document text too short for extraction');
+    return [];
+  }
+
+  const chunks = chunkDocument(text, CHUNK_SIZE, CHUNK_OVERLAP);
+  console.log(`Processing ${chunks.length} chunks...`);
+
+  const allDates: ExtractedDate[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    console.log(`Processing chunk ${i + 1}/${chunks.length}`);
+
+    try {
+      const dates = await callOpenAIForDates(chunk.text, openaiApiKey);
+      allDates.push(...dates);
+      console.log(`Extracted ${dates.length} dates from chunk ${i + 1}`);
+    } catch (error) {
+      console.error(`Failed to extract dates from chunk ${i + 1}:`, error);
+    }
+
+    if (i < chunks.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  const mergedDates = mergeDatesFromChunks(allDates);
+  console.log(`Total dates extracted: ${allDates.length}, after deduplication: ${mergedDates.length}`);
+
+  return mergedDates;
+}
+
+function chunkDocument(text: string, chunkSize: number, overlap: number): ChunkMetadata[] {
+  const lines = text.split('\n');
+  const chunks: ChunkMetadata[] = [];
+
+  const sections = detectSections(text);
+
+  if (sections.length > 1) {
+    sections.forEach((section, index) => {
+      if (section.text.trim().length > 50) {
+        chunks.push({
+          chunkIndex: index,
+          startLine: section.startLine,
+          endLine: section.endLine,
+          text: section.text
+        });
+      }
+    });
+  } else {
+    let currentChunk = '';
+    let startLine = 0;
+    let currentLine = 0;
+    let chunkIndex = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const potentialChunk = currentChunk + (currentChunk ? '\n' : '') + line;
+
+      if (potentialChunk.length > chunkSize && currentChunk.length > 0) {
+        chunks.push({
+          chunkIndex: chunkIndex++,
+          startLine,
+          endLine: currentLine,
+          text: currentChunk
+        });
+
+        const overlapLines = Math.floor(overlap / 50);
+        const overlapStart = Math.max(0, i - overlapLines);
+        currentChunk = lines.slice(overlapStart, i + 1).join('\n');
+        startLine = overlapStart;
+        currentLine = i;
+      } else {
+        currentChunk = potentialChunk;
+        currentLine = i;
+      }
+    }
+
+    if (currentChunk.trim().length > 0) {
+      chunks.push({
+        chunkIndex: chunkIndex++,
+        startLine,
+        endLine: currentLine,
+        text: currentChunk
+      });
+    }
+  }
+
+  return chunks.length > 0 ? chunks : [{
+    chunkIndex: 0,
+    startLine: 0,
+    endLine: lines.length - 1,
+    text: text
+  }];
+}
+
+function detectSections(text: string): Array<{ text: string; startLine: number; endLine: number }> {
+  const lines = text.split('\n');
+  const sections: Array<{ text: string; startLine: number; endLine: number }> = [];
+
+  const sectionPatterns = [
+    /^#{1,3}\s+(.+)$/i,
+    /^[A-Z][A-Z\s]{3,50}$/,
+    /^(Week\s+\d+|Module\s+\d+|Unit\s+\d+|Section\s+\d+)/i,
+    /^(Schedule|Calendar|Important Dates|Assignments|Exams|Grading)/i,
+  ];
+
+  let currentSection: string[] = [];
+  let sectionStart = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isHeader = sectionPatterns.some(pattern => pattern.test(line.trim()));
+
+    if (isHeader && currentSection.length > 0) {
+      sections.push({
+        text: currentSection.join('\n'),
+        startLine: sectionStart,
+        endLine: i - 1
+      });
+      currentSection = [line];
+      sectionStart = i;
+    } else {
+      currentSection.push(line);
+    }
+  }
+
+  if (currentSection.length > 0) {
+    sections.push({
+      text: currentSection.join('\n'),
+      startLine: sectionStart,
+      endLine: lines.length - 1
+    });
+  }
+
+  return sections;
+}
+
+async function callOpenAIForDates(chunk: string, apiKey: string): Promise<ExtractedDate[]> {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  const prompt = `You are an expert at extracting calendar dates from academic syllabus documents. Extract ALL dates that represent scheduled events.
 
 Current context: Today is ${currentMonth} ${today.getDate()}, ${currentYear} (${todayStr}).
 
-CRITICAL: Extract ONLY clear, actionable events with specific dates. DO NOT extract:
-- Random dates mentioned in passing without event context
-- Historical references or examples
-- Generic statements like "meet weekly" without specific dates
-- Dates in instructional text or descriptions
-- Today's date unless there's a clear event scheduled for today
-- Dates that are just part of document metadata or headers
+CRITICAL RULES:
+1. Extract ONLY genuine calendar events with specific dates
+2. Each date MUST be normalized to YYYYMMDD format (e.g., "20250315" for March 15, 2025)
+3. Category MUST be one of: exam, quiz, assignment_due, class_session, holiday, other
+4. Include the original text_span where the date was found
+5. Provide a clear description of what the event is
 
-What TO extract:
-- Scheduled meetings with specific dates/times
-- Assignment due dates with clear deliverables
-- Exam dates
-- Deadlines for specific tasks or submissions
-- Scheduled office hours on specific dates
-- Recurring events where you can calculate specific dates (e.g., "Every Monday at 2pm" - extract the next several Mondays)
+WHAT TO EXTRACT:
+- Exam dates (category: "exam")
+- Quiz dates (category: "quiz")
+- Assignment due dates (category: "assignment_due")
+- Class session dates (category: "class_session")
+- Holiday/break dates (category: "holiday")
+- Other scheduled events (category: "other")
 
-For each genuine event you find, provide:
-- title: Descriptive event name (NOT just "Meeting" or "Assignment" - include the topic/subject)
-- description: Additional context, requirements, or details
-- event_date: Date in YYYY-MM-DD format (must be a specific future date, not today unless explicitly scheduled)
-- start_time: Time in HH:MM:SS format (e.g., "14:30:00" for 2:30 PM), null if not mentioned
-- end_time: End time in HH:MM:SS format, null if not mentioned
-- location: Physical location or virtual meeting link
-- category: Choose from: assignment, exam, meeting, deadline, milestone, other
-- priority: critical (finals/major deadlines), high (major assignments/midterms), medium (regular work), low (optional)
-- confidence: 60-100 (use 60-70 for ambiguous, 70-85 for clear, 85-100 for explicit events with complete info)
+WHAT NOT TO EXTRACT:
+- Random dates mentioned without event context
+- Document creation dates or metadata
+- Historical references
+- Vague references without specific dates
 
-STRICT EXTRACTION RULES:
-1. Each event MUST have a clear, specific date that can be converted to YYYY-MM-DD format
-2. Event title MUST be meaningful - not just the date or a single generic word
-3. There must be clear event context near the date (assignment name, meeting topic, exam subject)
-4. Confidence below 60 means you should NOT extract it
-5. If you can't determine what the event actually is, don't extract it
-6. Today's date (${todayStr}) should ONLY be used if the document explicitly mentions an event happening today
-
-EXAMPLES OF WHAT TO EXTRACT:
-✓ "Problem Set 3 due October 15" → Extract as assignment on 2025-10-15
-✓ "Midterm exam on November 5, 2-4pm in Room 301" → Extract with full details
-✓ "Office hours every Tuesday 3-5pm" → Extract next several Tuesday dates
-✓ "Final project presentation December 10" → Extract as milestone
-
-EXAMPLES OF WHAT NOT TO EXTRACT:
-✗ "In 2025, we will cover..." → No specific event
-✗ "Meet with your team regularly" → No specific date
-✗ "Last updated: October 1" → Document metadata, not an event
-✗ "Classes began on September 3" → Past date reference
-✗ Random words or fragments near dates without clear event context
-
-Return ONLY a valid JSON array. No markdown, no code blocks, no explanations:
-[{"title":"...","event_date":"YYYY-MM-DD",...},...]
-
-If no genuine events are found, return an empty array: []
+For year inference:
+- If month is earlier than current month (${new Date().getMonth() + 1}), assume next year (${currentYear + 1})
+- If month is current or later, assume current year (${currentYear})
+- Always prefer explicitly stated years
 
 TEXT TO ANALYZE:
-${text.substring(0, 20000)}`;
+${chunk}
 
-    console.log('Calling OpenAI API for event extraction...');
+Return ONLY valid JSON matching this exact schema. No markdown, no code blocks, no explanations:
+{"dates":[{"text_span":"...","normalized_date":"YYYYMMDD","category":"exam|quiz|assignment_due|class_session|holiday|other","description":"..."}]}`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: 'gpt-4-turbo-preview',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 4000,
-    });
+      temperature: 0,
+      response_format: { type: 'json_object' }
+    })
+  });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      console.error('No response content from GPT');
-      throw new Error('No response from GPT');
-    }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
+    throw new Error(`OpenAI API error: ${error.error?.message || response.statusText}`);
+  }
 
-    console.log('GPT response received, parsing JSON...');
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
 
-    let jsonStr = content.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```\n?$/g, '');
-    }
+  if (!content) {
+    throw new Error('No response content from OpenAI');
+  }
 
-    const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-    jsonStr = jsonMatch ? jsonMatch[0] : jsonStr;
+  const result = JSON.parse(content);
 
-    const events = JSON.parse(jsonStr);
-    console.log(`Successfully parsed ${events.length} events from GPT response`);
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-
-    const validatedEvents = events
-      .map((event: any) => {
-        const eventDate = event.event_date || event.date;
-        if (!eventDate) {
-          console.warn('Event missing date, skipping:', event.title);
-          return null;
-        }
-
-        const dateObj = new Date(eventDate);
-        if (isNaN(dateObj.getTime())) {
-          console.warn('Invalid date format, skipping:', eventDate);
-          return null;
-        }
-
-        const minDate = new Date();
-        minDate.setDate(minDate.getDate() - 7);
-        const maxDate = new Date();
-        maxDate.setFullYear(maxDate.getFullYear() + 3);
-        if (dateObj < minDate || dateObj > maxDate) {
-          console.warn('Date out of reasonable range, skipping:', eventDate);
-          return null;
-        }
-
-        const title = event.title || 'Untitled Event';
-        const confidence = Math.min(Math.max(event.confidence || 75, 0), 100);
-
-        if (title.length < 5 || title.toLowerCase().includes('untitled')) {
-          console.warn('Event title too short or generic, skipping:', title);
-          return null;
-        }
-
-        if (confidence < 60) {
-          console.warn('Event confidence too low, skipping:', title, confidence);
-          return null;
-        }
-
-        const titleLower = title.toLowerCase();
-        if (titleLower.match(/^(date|time|event|meeting|assignment)$/)) {
-          console.warn('Event title is generic single word, skipping:', title);
-          return null;
-        }
-
-        if (eventDate === todayStr) {
-          const hasTimeOrLocation = event.start_time || event.location;
-          if (!hasTimeOrLocation && confidence < 80) {
-            console.warn('Event date is today but lacks time/location and has low confidence, skipping:', title);
-            return null;
-          }
-        }
-
-        return {
-          title: title,
-          description: event.description || undefined,
-          event_date: eventDate,
-          start_time: event.start_time || undefined,
-          end_time: event.end_time || undefined,
-          location: event.location || undefined,
-          category: event.category || 'other',
-          priority: event.priority || 'medium',
-          confidence: confidence,
-        };
-      })
-      .filter((event: any) => event !== null);
-
-    console.log(`Validated ${validatedEvents.length} events after filtering`);
-    return validatedEvents;
-  } catch (error) {
-    console.error('GPT extraction failed:', error);
-    if (error instanceof Error) {
-      console.error('Error details:', error.message);
-      console.error('Stack:', error.stack);
-    }
+  if (!result.dates || !Array.isArray(result.dates)) {
     return [];
   }
+
+  return result.dates.filter((date: any) => {
+    if (!date.normalized_date || !/^\d{8}$/.test(date.normalized_date)) {
+      console.warn('Invalid normalized_date format:', date.normalized_date);
+      return false;
+    }
+
+    const validCategories = ['exam', 'quiz', 'assignment_due', 'class_session', 'holiday', 'other'];
+    if (!validCategories.includes(date.category)) {
+      console.warn('Invalid category:', date.category);
+      return false;
+    }
+
+    if (!date.text_span || !date.description) {
+      console.warn('Missing required fields:', date);
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function mergeDatesFromChunks(allDates: ExtractedDate[]): ExtractedDate[] {
+  const dateMap = new Map<string, ExtractedDate>();
+
+  for (const date of allDates) {
+    const key = `${date.normalized_date}:${date.description.toLowerCase().trim()}`;
+    if (!dateMap.has(key)) {
+      dateMap.set(key, date);
+    }
+  }
+
+  const uniqueDates = Array.from(dateMap.values());
+
+  const deduplicatedDates = uniqueDates.filter((date, index) => {
+    for (let i = 0; i < index; i++) {
+      const other = uniqueDates[i];
+      if (date.normalized_date === other.normalized_date) {
+        const similarity = calculateSimilarity(
+          date.description.toLowerCase(),
+          other.description.toLowerCase()
+        );
+        if (similarity > 0.8) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+
+  return deduplicatedDates.sort((a, b) =>
+    a.normalized_date.localeCompare(b.normalized_date)
+  );
+}
+
+function calculateSimilarity(str1: string, str2: string): number {
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+
+  if (longer.length === 0) {
+    return 1.0;
+  }
+
+  const editDistance = levenshteinDistance(longer, shorter);
+  return (longer.length - editDistance) / longer.length;
+}
+
+function levenshteinDistance(str1: string, str2: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[str2.length][str1.length];
+}
+
+function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
+  return dates.map(date => {
+    const year = parseInt(date.normalized_date.substring(0, 4));
+    const month = parseInt(date.normalized_date.substring(4, 6)) - 1;
+    const day = parseInt(date.normalized_date.substring(6, 8));
+    const dateObj = new Date(year, month, day);
+    const eventDate = dateObj.toISOString().split('T')[0];
+
+    const categoryMap: Record<string, string> = {
+      'exam': 'exam',
+      'quiz': 'exam',
+      'assignment_due': 'assignment',
+      'class_session': 'meeting',
+      'holiday': 'other',
+      'other': 'other'
+    };
+
+    const priorityMap: Record<string, string> = {
+      'exam': 'high',
+      'quiz': 'medium',
+      'assignment_due': 'high',
+      'class_session': 'medium',
+      'holiday': 'low',
+      'other': 'medium'
+    };
+
+    return {
+      title: date.description,
+      description: date.text_span,
+      event_date: eventDate,
+      category: categoryMap[date.category] || 'other',
+      priority: priorityMap[date.category] || 'medium',
+      confidence: 85
+    };
+  });
 }
 
 function extractEventsFromText(text: string): ExtractedEvent[] {
@@ -545,12 +733,19 @@ Deno.serve(async (req: Request) => {
     console.log(`OpenAI key available: ${!!openaiApiKey}`);
 
     if (openaiApiKey && extractedText.length > 50) {
-      console.log('Using GPT extraction');
-      events = await extractEventsWithGPT(extractedText, openaiApiKey);
-      console.log(`GPT extracted ${events.length} events`);
+      console.log('Using new GPT-4.1 extraction with strict JSON');
+      try {
+        const extractedDates = await extractDatesFromDocument(extractedText, openaiApiKey);
+        console.log(`GPT extracted ${extractedDates.length} dates`);
+        events = convertDatesToEvents(extractedDates);
+        console.log(`Converted to ${events.length} events`);
 
-      if (events.length === 0) {
-        console.log('GPT returned 0 events, falling back to chrono');
+        if (events.length === 0) {
+          console.log('GPT returned 0 events, falling back to chrono');
+          events = extractEventsFromText(extractedText);
+        }
+      } catch (error) {
+        console.error('GPT extraction failed, falling back to chrono:', error);
         events = extractEventsFromText(extractedText);
       }
     } else {
