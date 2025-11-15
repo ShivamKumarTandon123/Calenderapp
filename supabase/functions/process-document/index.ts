@@ -351,6 +351,42 @@ function dateFromISODateOnly(iso: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
+function parseDateFromTextSpan(text: string): Date | null {
+  const t = text.trim();
+
+  const monthNamePattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b[\s.-]+(\d{1,2})[, ]+(\d{4})/i;
+  const m1 = t.match(monthNamePattern);
+  if (m1) {
+    const [, monthName, dayStr, yearStr] = m1;
+    const monthIndex = [
+      "jan","feb","mar","apr","may","jun",
+      "jul","aug","sep","oct","nov","dec"
+    ].indexOf(monthName.slice(0,3).toLowerCase());
+    const day = Number(dayStr);
+    const year = Number(yearStr);
+    if (monthIndex >= 0) {
+      return new Date(Date.UTC(year, monthIndex, day));
+    }
+  }
+
+  const slashPattern = /(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})/;
+  const m2 = t.match(slashPattern);
+  if (m2) {
+    let [ , a, b, c ] = m2;
+    const n1 = Number(a), n2 = Number(b), n3 = Number(c);
+
+    if (n1 > 1900 && n2 >= 1 && n2 <= 12 && n3 >= 1 && n3 <= 31) {
+      return new Date(Date.UTC(n1, n2 - 1, n3));
+    }
+
+    if (n3 > 1900 && n1 >= 1 && n1 <= 12 && n2 >= 1 && n2 <= 31) {
+      return new Date(Date.UTC(n3, n1 - 1, n2));
+    }
+  }
+
+  return null;
+}
+
 function formatDateLabel(eventDate: Date): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const month = months[eventDate.getUTCMonth()];
@@ -405,14 +441,10 @@ function buildEventTitle(rawDescription: string | null | undefined, eventDate: D
 function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
   return dates
     .map(date => {
-      if (!date.normalized_date || date.normalized_date.trim().length === 0) {
-        return null;
-      }
+      const eventDate = parseDateFromTextSpan(date.text_span);
 
-      const eventDate = dateFromISODateOnly(date.normalized_date);
-
-      if (isNaN(eventDate.getTime())) {
-        console.warn('Invalid date, skipping:', date.normalized_date);
+      if (!eventDate) {
+        console.warn('Could not parse date from text span, skipping:', date.text_span);
         return null;
       }
 
