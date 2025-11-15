@@ -346,6 +346,38 @@ function levenshteinDistance(str1: string, str2: string): number {
   return matrix[str2.length][str1.length];
 }
 
+function isRelativePhrase(text: string): boolean {
+  const t = text.trim().toLowerCase();
+
+  if (!t) return false;
+
+  const bannedExact = [
+    "today",
+    "tomorrow",
+    "yesterday",
+    "tonight",
+    "this week",
+    "next week",
+    "this month",
+    "next month",
+    "in 10 minutes",
+    "in 5 minutes",
+    "in a few minutes"
+  ];
+
+  if (bannedExact.includes(t)) return true;
+
+  if (/^\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/.test(t)) {
+    return true;
+  }
+
+  if (/^in\s+\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/.test(t)) {
+    return true;
+  }
+
+  return false;
+}
+
 function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
   return dates
     .map(date => {
@@ -357,6 +389,11 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
 
       if (isNaN(parsedDate.getTime())) {
         console.warn('Invalid date, skipping:', date.normalized_date);
+        return null;
+      }
+
+      if (isRelativePhrase(date.description) || isRelativePhrase(date.text_span)) {
+        console.warn('Skipping event with relative phrase:', date.description || date.text_span);
         return null;
       }
 
