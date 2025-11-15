@@ -346,6 +346,15 @@ function levenshteinDistance(str1: string, str2: string): number {
   return matrix[str2.length][str1.length];
 }
 
+function formatDateLabel(dateISO: string): string {
+  const date = new Date(dateISO);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[date.getMonth()];
+  const day = date.getDate();
+  const year = date.getFullYear();
+  return `${month} ${day}, ${year}`;
+}
+
 function isRelativePhrase(text: string): boolean {
   const t = text.trim().toLowerCase();
 
@@ -367,15 +376,26 @@ function isRelativePhrase(text: string): boolean {
 
   if (bannedExact.includes(t)) return true;
 
-  if (/^\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/.test(t)) {
+  if (/^\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/i.test(t)) {
     return true;
   }
 
-  if (/^in\s+\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/.test(t)) {
+  if (/^in\s+\d+\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)$/i.test(t)) {
     return true;
   }
 
   return false;
+}
+
+function buildEventTitle(rawDescription: string | null | undefined, dateISO: string): string {
+  const desc = (rawDescription ?? "").trim();
+  const dateLabel = formatDateLabel(dateISO);
+
+  if (!desc || isRelativePhrase(desc)) {
+    return dateLabel;
+  }
+
+  return `${dateLabel} – ${desc}`;
 }
 
 function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
@@ -399,6 +419,8 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
 
       const eventDate = parsedDate.toISOString().split('T')[0];
 
+      const title = buildEventTitle(date.description ?? date.text_span, date.normalized_date);
+
       const categoryMap: Record<string, string> = {
         'exam': 'exam',
         'quiz': 'exam',
@@ -418,7 +440,7 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
       };
 
       return {
-        title: date.description || date.text_span,
+        title: title,
         description: date.text_span,
         event_date: eventDate,
         category: categoryMap[date.category] || 'other',
@@ -598,8 +620,10 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
       .filter(line => line !== title && line.length > 15)
       .join(' ');
 
+    const formattedTitle = buildEventTitle(title, eventDateStr);
+
     const event: ExtractedEvent = {
-      title: title,
+      title: formattedTitle,
       description: description || undefined,
       event_date: eventDateStr,
       start_time: parsed.start.isCertain('hour') ?
