@@ -44,6 +44,20 @@ const priorityColors: Record<string, string> = {
   low: "bg-green-500",
 }
 
+function dateFromISODateOnly(iso: string): Date {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatEventDate(eventDateISO: string): string {
+  const date = dateFromISODateOnly(eventDateISO);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[date.getUTCMonth()];
+  const day = date.getUTCDate();
+  const year = date.getUTCFullYear();
+  return `${month} ${day}, ${year}`;
+}
+
 export function DocumentUpload() {
   const [documents, setDocuments] = useState<ProcessedDocument[]>([])
   const [selectedDocument, setSelectedDocument] = useState<ProcessedDocument | null>(null)
@@ -641,11 +655,7 @@ export function DocumentUpload() {
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1.5">
                               <Calendar className="h-3.5 w-3.5" />
-                              <span>{new Date(event.event_date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric'
-                              })}</span>
+                              <span>{formatEventDate(event.event_date)}</span>
                             </div>
                             {event.start_time && (
                               <div className="flex items-center gap-1.5">

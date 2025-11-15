@@ -346,12 +346,16 @@ function levenshteinDistance(str1: string, str2: string): number {
   return matrix[str2.length][str1.length];
 }
 
-function formatDateLabel(dateISO: string): string {
-  const date = new Date(dateISO);
+function dateFromISODateOnly(iso: string): Date {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatDateLabel(eventDate: Date): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const month = months[date.getMonth()];
-  const day = date.getDate();
-  const year = date.getFullYear();
+  const month = months[eventDate.getUTCMonth()];
+  const day = eventDate.getUTCDate();
+  const year = eventDate.getUTCFullYear();
   return `${month} ${day}, ${year}`;
 }
 
@@ -387,9 +391,9 @@ function isRelativePhrase(text: string): boolean {
   return false;
 }
 
-function buildEventTitle(rawDescription: string | null | undefined, dateISO: string): string {
+function buildEventTitle(rawDescription: string | null | undefined, eventDate: Date): string {
   const desc = (rawDescription ?? "").trim();
-  const dateLabel = formatDateLabel(dateISO);
+  const dateLabel = formatDateLabel(eventDate);
 
   if (!desc || isRelativePhrase(desc)) {
     return dateLabel;
@@ -405,9 +409,9 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
         return null;
       }
 
-      const parsedDate = new Date(date.normalized_date);
+      const eventDate = dateFromISODateOnly(date.normalized_date);
 
-      if (isNaN(parsedDate.getTime())) {
+      if (isNaN(eventDate.getTime())) {
         console.warn('Invalid date, skipping:', date.normalized_date);
         return null;
       }
@@ -417,9 +421,9 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
         return null;
       }
 
-      const eventDate = parsedDate.toISOString().split('T')[0];
+      const eventDateStr = eventDate.toISOString().split('T')[0];
 
-      const title = buildEventTitle(date.description ?? date.text_span, date.normalized_date);
+      const title = buildEventTitle(date.description ?? date.text_span, eventDate);
 
       const categoryMap: Record<string, string> = {
         'exam': 'exam',
@@ -442,7 +446,7 @@ function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
       return {
         title: title,
         description: date.text_span,
-        event_date: eventDate,
+        event_date: eventDateStr,
         category: categoryMap[date.category] || 'other',
         priority: priorityMap[date.category] || 'medium',
         confidence: 90
@@ -605,6 +609,7 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
     }
 
     const eventDateStr = startDate.toISOString().split('T')[0];
+    const eventDate = dateFromISODateOnly(eventDateStr);
 
     if (eventDateStr === todayStr && confidence < 70) {
       console.warn('Date is today with low confidence, skipping:', title);
@@ -620,7 +625,7 @@ function extractEventsFromText(text: string): ExtractedEvent[] {
       .filter(line => line !== title && line.length > 15)
       .join(' ');
 
-    const formattedTitle = buildEventTitle(title, eventDateStr);
+    const formattedTitle = buildEventTitle(title, eventDate);
 
     const event: ExtractedEvent = {
       title: formattedTitle,
