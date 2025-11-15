@@ -203,22 +203,26 @@ function detectSections(text: string): Array<{ text: string; startLine: number; 
 }
 
 async function callOpenAIForDates(chunk: string, apiKey: string): Promise<ExtractedDate[]> {
-  const prompt = `You are an AI assistant inside a calendar app.
+  const prompt = `You extract events from documents for a calendar.
 
-I will give you the full text of a document such as a syllabus, schedule, email, or contract.
+Rules:
+1. Only output events that contain an explicit calendar date in the text, such as:
+   Nov 14, 2025
+   November 14, 2025
+   11/14/2025
+   2025-11-14
+2. Completely ignore relative or vague expressions like:
+   today, tomorrow, in 10 minutes, in 3 weeks, within 30 days, for 600 hours, one month later, etc.
+   If a line only contains a relative expression, do not create an event for it.
+3. For each valid event output a JSON object with:
+   text_span: the exact text that contained the date
+   normalized_date: the date in ISO format YYYY-MM-DD
+   description: a short description of what happens on that date
+   category: one of exam, quiz, assignment_due, meeting, milestone, other
+4. If you cannot determine a full calendar date (year, month, day) with high confidence, leave normalized_date empty and do not output that event at all.
+5. Never invent dates. Never use the current date. Never use words like 'today' or 'tomorrow' as normalized_date.
 
-Read the entire document and extract all dates and what happens on those dates.
-
-Instructions:
-• Look for explicit dates like 'Nov 14, 2025', '11/14/25', 'December 5', 'May 2026'.
-• Also include clearly defined relative deadlines like 'within 30 days of signing', 'no later than 3 weeks before the exam'.
-• For each date or deadline, write ONE bullet on its own line.
-• Use this format exactly:
-  Original date text – short description of what happens
-• If you can infer a full calendar date, you may append it in parentheses, e.g.:
-  Nov 14, 2025 – Start of mobile urgent care practice (2025-11-14)
-• If something is vague or not clearly tied to an event, skip it instead of guessing.
-• Do not output JSON or code. Only output the bullet list.
+Return only a JSON array of events. No markdown, no code blocks.
 
 TEXT TO ANALYZE:
 ${chunk}`;
@@ -230,9 +234,10 @@ ${chunk}`;
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4-turbo-preview',
+      model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0
+      temperature: 0,
+      response_format: { type: 'json_object' }
     })
   });
 
@@ -248,25 +253,24 @@ ${chunk}`;
     throw new Error('No response content from OpenAI');
   }
 
-  const bulletLines = content.split('\n').filter((line: string) => line.trim().startsWith('•') || line.trim().startsWith('-'));
+  let result: any;
+  try {
+    result = JSON.parse(content);
+  } catch (e) {
+    console.error('Failed to parse JSON response:', content);
+    return [];
+  }
 
-  return bulletLines.map((line: string, index: number) => {
-    const cleanLine = line.replace(/^[•\-]\s*/, '').trim();
+  const events = result.events || [];
 
-    const dateMatch = cleanLine.match(/\((\d{4}-\d{2}-\d{2})\)/);
-    const normalizedDate = dateMatch ? dateMatch[1].replace(/-/g, '') : '';
-
-    const parts = cleanLine.split('–');
-    const textSpan = parts[0]?.trim() || cleanLine;
-    const description = parts[1]?.replace(/\(.*?\)/, '').trim() || textSpan;
-
+  return events.map((event: any) => {
     return {
-      text_span: textSpan,
-      normalized_date: normalizedDate,
-      category: 'other',
-      description: description
+      text_span: event.text_span || '',
+      normalized_date: event.normalized_date || '',
+      category: event.category || 'other',
+      description: event.description || ''
     };
-  }).filter((date: ExtractedDate) => date.text_span.length > 0);
+  }).filter((date: ExtractedDate) => date.text_span.length > 0 && date.normalized_date.length > 0);
 }
 
 function mergeDatesFromChunks(allDates: ExtractedDate[]): ExtractedDate[] {
@@ -343,31 +347,49 @@ function levenshteinDistance(str1: string, str2: string): number {
 }
 
 function convertDatesToEvents(dates: ExtractedDate[]): ExtractedEvent[] {
-  return dates.map(date => {
-    let eventDate = '';
+  return dates
+    .map(date => {
+      if (!date.normalized_date || date.normalized_date.trim().length === 0) {
+        return null;
+      }
 
-    if (date.normalized_date && date.normalized_date.length === 8) {
-      const year = parseInt(date.normalized_date.substring(0, 4));
-      const month = parseInt(date.normalized_date.substring(4, 6)) - 1;
-      const day = parseInt(date.normalized_date.substring(6, 8));
-      const dateObj = new Date(year, month, day);
-      eventDate = dateObj.toISOString().split('T')[0];
-    } else {
-      const today = new Date();
-      eventDate = today.toISOString().split('T')[0];
-    }
+      const parsedDate = new Date(date.normalized_date);
 
-    const fullBulletText = date.text_span + (date.description && date.description !== date.text_span ? ' – ' + date.description : '');
+      if (isNaN(parsedDate.getTime())) {
+        console.warn('Invalid date, skipping:', date.normalized_date);
+        return null;
+      }
 
-    return {
-      title: fullBulletText,
-      description: '',
-      event_date: eventDate,
-      category: 'other',
-      priority: 'medium',
-      confidence: 85
-    };
-  });
+      const eventDate = parsedDate.toISOString().split('T')[0];
+
+      const categoryMap: Record<string, string> = {
+        'exam': 'exam',
+        'quiz': 'exam',
+        'assignment_due': 'assignment',
+        'meeting': 'meeting',
+        'milestone': 'milestone',
+        'other': 'other'
+      };
+
+      const priorityMap: Record<string, string> = {
+        'exam': 'high',
+        'quiz': 'medium',
+        'assignment_due': 'high',
+        'meeting': 'medium',
+        'milestone': 'high',
+        'other': 'medium'
+      };
+
+      return {
+        title: date.description || date.text_span,
+        description: date.text_span,
+        event_date: eventDate,
+        category: categoryMap[date.category] || 'other',
+        priority: priorityMap[date.category] || 'medium',
+        confidence: 90
+      };
+    })
+    .filter((event): event is ExtractedEvent => event !== null);
 }
 
 function extractEventsFromText(text: string): ExtractedEvent[] {
